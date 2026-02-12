@@ -103,40 +103,38 @@ void boot_current() {
     std::cout << "BootNext:" << bootnext << std::endl;
 }
 
-
-
-void get_boot_entries() {
-    auto boot_order = win32_helper::get_firmware_environment_variable_boot_order();
-    for (const auto boot_index : boot_order) {
-        std::cout << boot_index << ": ";
-        auto option = win32_helper::get_firmware_environment_variable_boot_option(boot_index);
-
-        std::mbstate_t state{};
-        for (auto p = option.get_description(); *p != 0; p++) {
-            auto str = std::array<char, 4>();
-            auto rc = std::c16rtomb(str.data(), *p, &state);
-            if (rc != (std::size_t)-1){
-                std::cout << std::string_view{str.data(), rc};
-            }
-        }
-        std::cout << std::endl;
-    }
-}
-
-
 void boot_to(auto name) {
     ObtainPrivileges(SE_SYSTEM_ENVIRONMENT_NAME);
     //ObtainPrivileges(SE_SHUTDOWN_NAME);
 
+    bootnum_t bootnext = 0;
     auto config = parse_config();
-    auto bootnum = config[name];
-    std::cout << bootnum << std::endl;
+    if (config.contains(name)) {
+        auto bootnum = config[name];
+        bootnext = bootnum;
+    }
+    else {
+        auto boot_order = win32_helper::get_firmware_environment_variable_boot_order();
+        auto ite = std::find_if(boot_order.begin(), boot_order.end(),
+                [&name](auto boot_index) {
+                    auto option = win32_helper::get_firmware_environment_variable_boot_option(boot_index);
+                    auto str = cpp_helper::to_mb(option.get_description());
+                    return str.npos != str.find(name);
+                });
+        if (ite != boot_order.end()) {
+            bootnext = *ite;
+        }
+        else {
+            throw std::runtime_error{std::format("can not find option for given name: {}", name)};
+        }
+    }
 
-    bootnum_t bootnext = bootnum;
     if (!SetFirmwareEnvironmentVariableA("BootNext", EFI_GLOBAL_VARIABLE, &bootnext, sizeof(uint16_t)))
     {
         throw std::exception("SetFirmwareEnvironmentVariable fail");
     }
+    win32_helper::get_firmware_environment_variable("BootNext", bootnext);
+    std::cout << "BootNext:" << bootnext << std::endl;
 }
 
 int main(int argc, const char** argv)
