@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <filesystem>
 #include <fstream>
+#include <cuchar>
 
 #include <win32_helper.hpp>
 
@@ -67,36 +68,26 @@ std::unordered_map<std::string, bootnum_t> parse_config() {
     return config;
 }
 
+
 void boot_current() {    
     ObtainPrivileges(SE_SYSTEM_ENVIRONMENT_NAME);
     //ObtainPrivileges(SE_SHUTDOWN_NAME);
-    char buffer[1024];
+
     bootnum_t boot_current = 0;
-    if (!GetFirmwareEnvironmentVariableA("BootCurrent", EFI_GLOBAL_VARIABLE, &boot_current, sizeof(boot_current)))
-    {
-        throw std::exception("GetFirmwareEnvironmentVariable fail");
-    }
+    win32_helper::get_firmware_environment_variable("BootCurrent", boot_current);
     std::cout << "BootCurrent:" << boot_current << std::endl;
-    int size = 0;
-    if (! (size = GetFirmwareEnvironmentVariableA("BootOrder", EFI_GLOBAL_VARIABLE, buffer, sizeof(buffer)))) {
-        throw std::exception("GetFirmwareEnvironmentVariable fail");
-    }
+
+    auto boot_order = win32_helper::get_firmware_environment_variable_boot_order();
     std::cout << "BootOrder:";
-    for (int i = 0; i < size/sizeof(bootnum_t); i++) {
-        std::cout << ((bootnum_t*)buffer)[i] << ',';
+    for (int i = 0; i < boot_order.size(); i++) {
+        std::cout << boot_order[i] << ',';
     }
     std::cout << std::endl;
 
     std::cout << "Try to get current BootNext" << std::endl;
     bootnum_t bootnext = 0;
-    if (!GetFirmwareEnvironmentVariable("BootNext", EFI_GLOBAL_VARIABLE, &bootnext, sizeof(bootnext)))
-    {
-        std::cout << "get bootnext fail" << std::endl;
-    }
-    else
-    {
-        std::cout << "BootNext:" << bootnext << std::endl;
-    }
+    win32_helper::get_firmware_environment_variable("BootNext");
+    std::cout << "BootNext:" << bootnext << std::endl;
     if (bootnext == boot_current) {
         std::cout << "BootNext equal to BootCurrent, will quit!" << std::endl;
         return;
@@ -108,13 +99,29 @@ void boot_current() {
         throw std::exception("SetFirmwareEnvironmentVariable fail");
     }
     std::cout << "After set BootNext" << std::endl;
-    if (!GetFirmwareEnvironmentVariableA("BootNext", EFI_GLOBAL_VARIABLE, buffer, sizeof(buffer)))
-    {
-        throw std::exception("GetFirmwareEnvironmentVariable fail");
-    }
-    std::cout << "BootNext:" << *(bootnum_t *)buffer << std::endl;
+    win32_helper::get_firmware_environment_variable("BootNext", bootnext);
+    std::cout << "BootNext:" << bootnext << std::endl;
 }
 
+
+
+void get_boot_entries() {
+    auto boot_order = win32_helper::get_firmware_environment_variable_boot_order();
+    for (const auto boot_index : boot_order) {
+        std::cout << boot_index << ": ";
+        auto option = win32_helper::get_firmware_environment_variable_boot_option(boot_index);
+
+        std::mbstate_t state{};
+        for (auto p = option.get_description(); *p != 0; p++) {
+            auto str = std::array<char, 4>();
+            auto rc = std::c16rtomb(str.data(), *p, &state);
+            if (rc != (std::size_t)-1){
+                std::cout << std::string_view{str.data(), rc};
+            }
+        }
+        std::cout << std::endl;
+    }
+}
 
 
 void boot_to(auto name) {
@@ -161,7 +168,7 @@ int main(int argc, const char** argv)
             MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
             (LPTSTR)&lpMsgBuf,
             0, NULL);
-        std::cout << lpMsgBuf << std::endl;
+        std::cout << errCode << ": " << lpMsgBuf << std::endl;
     }
     return 0;
 }
