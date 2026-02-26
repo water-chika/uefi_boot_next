@@ -54,18 +54,27 @@ std::unordered_map<std::string, bootnum_t> parse_config(std::istream& in) {
 }
 
 std::unordered_map<std::string, bootnum_t> parse_config(const std::filesystem::path& path) {
+    if (not std::filesystem::exists(path)) {
+        throw std::runtime_error{ "config path not exists" };
+    }
     auto in = std::ifstream{ path };
     return parse_config(in);
 }
 
 std::unordered_map<std::string, bootnum_t> parse_config() {
-    auto module_path = win32_helper::get_module_file_name();
+    try {
+        auto module_path = win32_helper::get_module_file_name();
 
-    auto directory = std::filesystem::path{module_path.data()}.parent_path();
-    auto config_path = directory / "boot.cfg";
+        auto directory = std::filesystem::path{ module_path.data() }.parent_path();
+        auto config_path = directory / "boot.cfg";
 
-    auto config = parse_config(config_path);
-    return config;
+        auto config = parse_config(config_path);
+        return config;
+    }
+    catch (std::exception& e) {
+        std::cerr << "parse_config exception: " << e.what() << std::endl;
+        return {};
+    }
 }
 
 
@@ -114,12 +123,17 @@ void boot_to(auto name) {
         bootnext = bootnum;
     }
     else {
+        std::cout << "use boot description to determine boot next" << std::endl;
         auto boot_order = win32_helper::get_firmware_environment_variable_boot_order();
         auto ite = std::find_if(boot_order.begin(), boot_order.end(),
                 [&name](auto boot_index) {
                     auto option = win32_helper::get_firmware_environment_variable_boot_option(boot_index);
                     auto str = cpp_helper::to_mb(option.get_description());
-                    return str.npos != str.find(name);
+                    bool contains = str.npos != str.find(name);
+                    if (contains) {
+                        std::cout << "find a option contains the str: " << boot_index << "(" << str << ")" << std::endl;
+                    }
+                    return contains;
                 });
         if (ite != boot_order.end()) {
             bootnext = *ite;
